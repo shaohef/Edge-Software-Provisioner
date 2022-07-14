@@ -218,7 +218,7 @@ pullProfile() {
             logInfoMsg "No Git authentication method found (git_username/git_token, or SSH-Agent)."
         fi
         run "  ${C_GREEN}${name}${T_RESET}: Pulling latest from ${git_branch_name} on repo ${git_remote_url}" \
-            "docker run --rm --privileged ${DOCKER_RUN_ARGS} ${docker_ssh_args-} -v ${WEB_PROFILE}/${name}:/tmp/profiles/${name} -w /tmp/profiles/${name} builder-git sh -c 'git fetch origin ${git_branch_name} && git reset --hard ${git_branch_name} && git pull origin ${git_branch_name}'" \
+            "docker run --rm --privileged ${DOCKER_RUN_ARGS} ${docker_ssh_args-} -v ${WEB_PROFILE}/:/tmp/profiles/ -w /tmp/profiles/${name} builder-git sh -c 'git fetch origin ${git_branch_name} && git reset --hard ${git_branch_name} && git pull origin ${git_branch_name}'" \
             ${LOG_FILE}
     else
         printDatedErrMsg "Profile ${name} either is improperly configured or does not exist."
@@ -251,7 +251,7 @@ pullProfile() {
                 logInfoMsg "Pull - No Git authentication method found (git_username/git_token, or SSH-Agent)."
             fi
             run "  ${C_GREEN}${base_name}${T_RESET}: Pulling latest from ${git_base_branch_name} on repo ${git_remote_url}" \
-                "docker run --rm --privileged ${DOCKER_RUN_ARGS} ${docker_ssh_args-} -v ${WEB_PROFILE}/${base_name}:/tmp/profiles/${base_name} -w /tmp/profiles/${base_name} builder-git sh -c 'git fetch origin ${git_base_branch_name} && git reset --hard ${git_base_branch_name} && git pull origin ${git_base_branch_name}'" \
+                "docker run --rm --privileged ${DOCKER_RUN_ARGS} ${docker_ssh_args-} -v ${WEB_PROFILE}/:/tmp/profiles/ -w /tmp/profiles/${base_name} builder-git sh -c 'git fetch origin ${git_base_branch_name} && git reset --hard ${git_base_branch_name} && git pull origin ${git_base_branch_name}'" \
                 ${LOG_FILE}
         else
             printDatedErrMsg "Profile ${base_name} either is improperly configured or does not exist."
@@ -475,6 +475,7 @@ resetGlobalProfileConfigVariables() {
     # multiple profiles. If a user wants to leave a variable undefined, and the
     # code supports that, we have to reset the variables each time.
     profile_config_kernel_arguments=
+    profile_config_kernel_type=
 }
 
 loadProfileConfig() {
@@ -712,7 +713,7 @@ genProfilePxeMenu() {
         local kernelPath="http://@@HOST_IP@@/tftp/images/${name}/${kernelFilename}"
         addLineToPxeMenu "\"    KERNEL ${kernelPath}\""
         kernelArgs="initrd=http://@@HOST_IP@@/tftp/images/${name}/${initrdFilename} ${kernelArgs}"
-    elif [[ "${profile_config_kernel_type-}" == "ipxe" ]]; then
+    elif [[ "${profile_config_kernel_type-}" == "ipxe.lkrn" ]]; then
         addLineToPxeMenu "\"    KERNEL http://@@HOST_IP@@/tftp/images/ipxe/ipxe.lkrn \""
         mkdir -p ${WEB_ROOT}/ipxe/${name}
         cat ${TEMPLATE_FILES}/ipxe/boot.ipxe.${profile_config_ipxe_template}.template | sed "s#@@HOST_IP@@#${builder_config_host_ip}#g" | sed "s#@@PROFILE_NAME@@#${name}#g" > ${WEB_ROOT}/ipxe/${name}/boot.ipxe
@@ -731,7 +732,7 @@ genProfilePxeMenu() {
         kernelArgs="${uosInitrdKernelArg} ${kernelArgs}"
     fi
 
-    if [[ "${profile_config_kernel_type-}" == "ipxe" ]]; then
+    if [[ "${profile_config_kernel_type-}" == "ipxe.lkrn" ]]; then
         kernelArgs="dhcp && chain http://@@HOST_IP@@/ipxe/${name}/boot.ipxe"
     elif [[ "${profileContainsIso}" == "true" ]] || [[ "${profile_config_kernel_type-}" == "memdisk" ]]; then
         kernelArgs="iso raw"
@@ -748,8 +749,189 @@ genProfilePxeMenu() {
 
     addLineToPxeMenu ''
 
-    printDatedOkMsg "Added ${name} profile to PXE boot menu successfully."
+    # printDatedOkMsg "Added ${name} profile to PXE boot menu successfully."
     logMsg "Added ${name} profile to PXE boot menu successfully."
+}
+
+genProfileIpxeMenu() {
+    # Not all of these arguments may be used by this function, but this
+    # follows a consistent format. See the "profilesActions" function
+    local git_remote_url=$1
+    local git_branch_name=$2
+    local git_base_branch_name=$3
+    local git_username=$4
+    local git_token=$5
+    local name=$6
+    local base_name=${6}_base
+    local custom_git_arguments=$7
+    local iteration=$8
+
+    custom_git_arguments=$(validateEmptyInput ${custom_git_arguments})
+    git_username=$(validateEmptyInput ${git_username})
+    git_token=$(validateEmptyInput ${git_token})
+
+    local autogen_str='# Auto-generated'
+
+    resetGlobalProfileConfigVariables
+    loadProfileConfig ${name}
+
+    # Load the profile's conf/files.yml file
+    local foundProfileFiles=$(canLoadProfileFiles "${WEB_PROFILE}/${name}/conf/files.yml" "${name}")
+    if [[ ${foundProfileFiles} == "0" ]]; then
+        # Now load the profile's files.yml variables into memory.
+        parseProfileFilesYml "${WEB_PROFILE}/${name}/conf/files.yml"
+    fi
+
+    # Determine the keyboard shortcut that corresponds for this menu item
+    # based on the number of times the string appears in the file
+    # i.e. 1, 2, 3
+    local tmpIxeMenuFile=$(getTmpIpxeMenuLocation)
+    local autogenCount=$(cat ${tmpIxeMenuFile} | grep "${autogen_str}" | wc -l)
+
+    # The keyboard shortcut is autogenCount + 0, so calculate it
+    # It used to be n + 1, but we moved the local boot option to the bottom,
+    # and so an offset is no longer necessary
+    local autogenCountInc=$(( ${autogenCount} + 0 ))
+
+    # if --boot-profile is set update the defaul PXE Menu to this profile
+    if [ "${BOOT_PROFILE}" == "${name}" ]; then
+        replaceDefaultIPXEboot ${name}
+    fi
+
+    # Continue to add lines to the menu, incorporating the above variable
+    addLineToIpxeMenu "\"${autogen_str}\""
+    addLineToIpxeMenu "\"item --key ${autogenCountInc} ${name}     ${autogenCountInc}) ${name}\""
+
+    # printDatedOkMsg "Added ${name} profile to iPXE boot menu successfully."
+    # logMsg "Added ${name} profile to iPXE boot menu successfully."
+}
+
+genProfileIpxeGoto() {
+    # Not all of these arguments may be used by this function, but this
+    # follows a consistent format. See the "profilesActions" function
+    local git_remote_url=$1
+    local git_branch_name=$2
+    local git_base_branch_name=$3
+    local git_username=$4
+    local git_token=$5
+    local name=$6
+    local base_name=${6}_base
+    local custom_git_arguments=$7
+    local iteration=$8
+
+    custom_git_arguments=$(validateEmptyInput ${custom_git_arguments})
+    git_username=$(validateEmptyInput ${git_username})
+    git_token=$(validateEmptyInput ${git_token})
+
+    local autogen_str='# Auto-generated'
+
+    resetGlobalProfileConfigVariables
+    loadProfileConfig ${name}
+
+    # Load the profile's conf/files.yml file
+    local foundProfileFiles=$(canLoadProfileFiles "${WEB_PROFILE}/${name}/conf/files.yml" "${name}")
+    if [[ ${foundProfileFiles} == "0" ]]; then
+        # Now load the profile's files.yml variables into memory.
+        parseProfileFilesYml "${WEB_PROFILE}/${name}/conf/files.yml"
+    fi
+
+    local kernelArgs=""
+    local proxyArgs=""
+    local noproxyArgs=""
+    local kernelLine=""
+    local initrdLine=""
+    local initrdArgs="initrd=initrd"
+    local ttyArg="console=tty0"
+    local httpserverArg="httpserver=@@HOST_IP@@"
+    local bootstrapArg="bootstrap=http://@@HOST_IP@@/profile/${name}/bootstrap.sh"
+    local uosInitrd="http://@@HOST_IP@@/tftp/images/uos/initrd"
+    local httpFilesPathArg="httppath=/files/${name}"
+
+    if [[ ${git_base_branch_name} == 'None' ||  ${git_base_branch_name} == "" ]]; then
+        local baseBranchArg="basebranch=None"
+    else
+        local baseBranchArg="basebranch=http://@@HOST_IP@@/profile/${base_name}"
+    fi
+
+    kernelArgs="${initrdArgs} ${ttyArg} ${httpserverArg} ${bootstrapArg} ${baseBranchArg} ${httpFilesPathArg} ${kernelArgs}"
+
+    # If proxy args exist, add kernel parameters to pass along the proxy settings
+    if [ ! -z "${HTTPS_PROXY+x}" ] || [ ! -z "${HTTP_PROXY+x}" ]; then
+        if [ ! -z "${HTTPS_PROXY+x}" ]; then
+            proxyArgs="proxy=${HTTPS_PROXY}"
+        else
+            proxyArgs="proxy=${HTTP_PROXY}"
+        fi
+    fi
+    if [ ! -z "${NO_PROXY+x}" ] || [ ! -z "${no_proxy+x}" ]; then
+        if [ ! -z "${NO_PROXY+x}" ]; then
+            noproxyArgs="noproxy=${NO_PROXY}"
+        else
+            noproxyArgs="noproxy=${no_proxy}"
+        fi
+    fi
+    if [ ! -z "${FTP_PROXY+x}" ]; then
+        proxyArgs="${proxyArgs} proxysocks=${FTP_PROXY}"
+    fi
+    if [ ! -z "${proxyArgs}" ]; then
+        kernelArgs="${kernelArgs} ${proxyArgs}"
+    fi
+    if [ ! -z "${noproxyArgs}" ]; then
+        kernelArgs="${kernelArgs} ${noproxyArgs}"
+    fi
+
+    # If kernel & initrd are both specified in the profile's files.yml,
+    # then use them. Otherwise, use UOS. In both cases, use the kernel args
+    # that are passed by the user.
+    profileContainsKernelAndInitrd=$(areKernelAndInitrdInProfileFilesYml)
+    profileContainsIso=$(isIsoInProfileFilesYml)
+    kernelFilename=$(getKernelFromProfileFilesYml)
+    initrdFilename=$(getInitrdFromProfileFilesYml)
+    isoFilename=$(getIsoFromProfileFilesYml)
+
+    addLineToIpxeMenu "\":${name}\""
+
+    if [[ "${profileContainsKernelAndInitrd}" == "true" ]]; then
+        local kernelPath="http://@@HOST_IP@@/tftp/images/${name}/${kernelFilename}"
+        kernelLine="kernel ${kernelPath}"
+        initrdLine="initrd http://@@HOST_IP@@/tftp/images/${name}/${initrdFilename}"
+    elif [[ "${profileContainsIso}" == "true" ]] || [[ "${profile_config_kernel_type-}" == "memdisk" ]]; then
+  	    kernelLine="kernel http://@@HOST_IP@@/tftp/images/iso/memdisk vmalloc=16G"
+        initrdLine="initrd http://@@HOST_IP@@/tftp/images/${name}/${isoFilename}"
+    elif [[ -f "${TFTP_IMAGES}/uos/${name}/initrd" ]]; then
+        # Use Embedded Micro OS (uOS).
+        local kernelPath="http://@@HOST_IP@@/tftp/images/uos/vmlinuz"
+        kernelLine="kernel ${kernelPath}"
+        initrdLine="initrd http://@@HOST_IP@@/tftp/images/uos/${name}/initrd"
+    else
+        # Use Micro OS (uOS).
+        local kernelPath="http://@@HOST_IP@@/tftp/images/uos/vmlinuz"
+        kernelLine="kernel ${kernelPath}"
+        initrdLine="initrd ${uosInitrd}"
+    fi
+
+    if [[ "${profile_config_kernel_type-}" == "ipxe.lkrn" ]]; then
+        kernelArgs="dhcp && chain http://@@HOST_IP@@/ipxe/${name}/boot.ipxe"
+    elif [[ "${profileContainsIso}" == "true" ]] || [[ "${profile_config_kernel_type-}" == "memdisk" ]]; then
+        kernelArgs="iso raw"
+    elif [[ -n "${profile_config_kernel_arguments-}" ]]; then
+        kernelArgs="${kernelArgs} ${profile_config_kernel_arguments}"
+    fi
+
+    # Perform the @@PROFILE_NAME@@ template rendering for this profile's
+    # kernel args here.
+    profileNamePlaceholder="@@PROFILE_NAME@@"
+    kernelArgs=$(echo "${kernelArgs}" | sed "s/${profileNamePlaceholder}/${name}/g")
+    
+    addLineToIpxeMenu "\"    echo Booting ${name}\""
+    addLineToIpxeMenu "\"    ${kernelLine} ${kernelArgs}\""
+    addLineToIpxeMenu "\"    ${initrdLine}\""
+    addLineToIpxeMenu "\"    boot || goto menu\""
+
+    addLineToIpxeMenu ''
+
+    printDatedOkMsg "Added ${name} profile to iPXE boot menu successfully."
+    logMsg "Added ${name} profile to iPXE boot menu successfully."
 }
 
 genProfileVirtualPxeMenu() {
@@ -1264,7 +1446,6 @@ genProfileUsbBoot() {
     printMsg ""
 }
 
-
 genAllProfileUsbBoot() {
     local name="all"
     local usb_path="data/usr/share/nginx/html/usb"
@@ -1342,63 +1523,115 @@ genAllProfileUsbBoot() {
         USB_IMG_SIZE=$(du -bcs ${TFTP_IMAGES}/uos/usb/* | grep total | awk '{print $1}')
         BOOT_IMAGES_SiZE=$(du -bcs --exclude=iso* --exclude=uos* ${img_path}/* | grep total | awk '{print $1}')
 
-
-
         printDatedMsg "Building bootable USB stick for ${name} profiles."
         logMsg "Building bootable USB stick for ${name} profiles."
 
-        if [ "${USB_BIOS}" == "efi" ]; then
-            docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
-                truncate --size \${IMG_SIZE} /usb/temp.img && \
-                TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
-                dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/gptmbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
-                parted --script \${TEMP_IMG_DEV} mklabel gpt mkpart ESP fat32 1MiB 100% set 1 esp on && \
-                mkfs -t vfat \${TEMP_IMG_DEV}p1 && \
-                mount \${TEMP_IMG_DEV}p1 /mnt && \
-                rsync -rt --exclude=initrd.gz ${img_path}/uos/usb/ /mnt/ && \
-                rsync -rt --exclude=iso/ --exclude=uos/ ${img_path}/ /mnt/ && \
-                cp /usr/share/syslinux/memdisk /mnt/ && \
-                mkdir -p /mnt/EFI/BOOT/ && \
-                cp -r /usr/share/syslinux/efi64/* /mnt/EFI/BOOT/ && \
-                cp -r /usr/share/syslinux/efi64/syslinux.efi /mnt/EFI/BOOT/BOOTX64.EFI && \
-                cp /data/srv/tftp/pxelinux.cfg/default /mnt/EFI/BOOT/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/vmlinuz#/vmlinuz#g' /mnt/EFI/BOOT/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/initrd#/initrd#g' /mnt/EFI/BOOT/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/\\([a-zA-Z_]\\+\\)/initrd#/\\1/initrd#g' /mnt/EFI/BOOT/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/iso/memdisk#/memdisk#g' /mnt/EFI/BOOT/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/#/#g' /mnt/EFI/BOOT/syslinux.cfg && \
-                umount /mnt && \
-                sync && \
-                partx -d \${TEMP_IMG_DEV} && \
-                losetup -d \${TEMP_IMG_DEV} && \
-                mv /usb/temp.img /usb/${IMG_NAME}.img"
-            umount /dev/console
+        if [ "${USB_BOOTLOADER}" == "ipxe" ]; then
+            if [ "${USB_BIOS}" == "efi" ]; then
+                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
+                    truncate --size \${IMG_SIZE} /usb/temp.img && \
+                    TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
+                    dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/gptmbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
+                    parted --script \${TEMP_IMG_DEV} mklabel gpt mkpart ESP fat32 1MiB 100% set 1 esp on && \
+                    mkfs -t vfat \${TEMP_IMG_DEV}p1 && \
+                    mount \${TEMP_IMG_DEV}p1 /mnt && \
+                    rsync -rt --exclude=initrd.gz ${img_path}/uos/usb/ /mnt/ && \
+                    rsync -rt --exclude=iso/ --exclude=uos/ ${img_path}/ /mnt/ && \
+                    cp /usr/share/syslinux/memdisk /mnt/ && \
+                    mkdir -p /mnt/EFI/BOOT/ && \
+                    cp -r /usr/share/syslinux/efi64/* /mnt/EFI/BOOT/ && \
+                    cp -r /usr/share/syslinux/efi64/syslinux.efi /mnt/EFI/BOOT/BOOTX64.EFI && \
+                    cp /data/srv/tftp/pxelinux.cfg/default /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/vmlinuz#/vmlinuz#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/initrd#/initrd#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/\\([a-zA-Z_]\\+\\)/initrd#/\\1/initrd#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/iso/memdisk#/memdisk#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/#/#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    umount /mnt && \
+                    sync && \
+                    partx -d \${TEMP_IMG_DEV} && \
+                    losetup -d \${TEMP_IMG_DEV} && \
+                    mv /usb/temp.img /usb/${IMG_NAME}.img"
+                umount /dev/console
+            else
+                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
+                    truncate --size \${IMG_SIZE} /usb/temp.img && \
+                    TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
+                    dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/mbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
+                    parted --script \${TEMP_IMG_DEV} mklabel msdos mkpart primary fat32 1MiB 100% set 1 boot on && \
+                    mkfs -t vfat \${TEMP_IMG_DEV}p1 > /dev/null 2>&1 && \
+                    syslinux -i \${TEMP_IMG_DEV}p1 && \
+                    mount \${TEMP_IMG_DEV}p1 /mnt && \
+                    rsync -rt --exclude=initrd.gz ${img_path}/uos/usb/ /mnt/ && \
+                    rsync -rt --exclude=iso/ --exclude=uos/ ${img_path}/ /mnt/ && \
+                    cp /usr/share/syslinux/memdisk /mnt/ && \
+                    cp /usr/share/syslinux/*.c32 /mnt/ && \
+                    cp /data/srv/tftp/pxelinux.cfg/default /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/vmlinuz#/vmlinuz#g' /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/initrd#/initrd#g' /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/\\([a-zA-Z_]\\+\\)/initrd#/\\1/initrd#g' /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/iso/memdisk#/memdisk#g' /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/#/#g' /mnt/syslinux.cfg && \
+                    umount /mnt && \
+                    sync && \
+                    partx -d \${TEMP_IMG_DEV} && \
+                    losetup -d \${TEMP_IMG_DEV} && \
+                    mv /usb/temp.img /usb/${IMG_NAME}.img"
+                umount /dev/console
+            fi
         else
-            docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
-                truncate --size \${IMG_SIZE} /usb/temp.img && \
-                TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
-                dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/mbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
-                parted --script \${TEMP_IMG_DEV} mklabel msdos mkpart primary fat32 1MiB 100% set 1 boot on && \
-                mkfs -t vfat \${TEMP_IMG_DEV}p1 > /dev/null 2>&1 && \
-                syslinux -i \${TEMP_IMG_DEV}p1 && \
-                mount \${TEMP_IMG_DEV}p1 /mnt && \
-                rsync -rt --exclude=initrd.gz ${img_path}/uos/usb/ /mnt/ && \
-                rsync -rt --exclude=iso/ --exclude=uos/ ${img_path}/ /mnt/ && \
-                cp /usr/share/syslinux/memdisk /mnt/ && \
-                cp /usr/share/syslinux/*.c32 /mnt/ && \
-                cp /data/srv/tftp/pxelinux.cfg/default /mnt/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/vmlinuz#/vmlinuz#g' /mnt/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/initrd#/initrd#g' /mnt/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/\\([a-zA-Z_]\\+\\)/initrd#/\\1/initrd#g' /mnt/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/iso/memdisk#/memdisk#g' /mnt/syslinux.cfg && \
-                sed -i 's#http://${builder_config_host_ip}/tftp/images/#/#g' /mnt/syslinux.cfg && \
-                umount /mnt && \
-                sync && \
-                partx -d \${TEMP_IMG_DEV} && \
-                losetup -d \${TEMP_IMG_DEV} && \
-                mv /usb/temp.img /usb/${IMG_NAME}.img"
-            umount /dev/console
-        fi
+            if [ "${USB_BIOS}" == "efi" ]; then
+                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
+                    truncate --size \${IMG_SIZE} /usb/temp.img && \
+                    TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
+                    dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/gptmbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
+                    parted --script \${TEMP_IMG_DEV} mklabel gpt mkpart ESP fat32 1MiB 100% set 1 esp on && \
+                    mkfs -t vfat \${TEMP_IMG_DEV}p1 && \
+                    mount \${TEMP_IMG_DEV}p1 /mnt && \
+                    rsync -rt --exclude=initrd.gz ${img_path}/uos/usb/ /mnt/ && \
+                    rsync -rt --exclude=iso/ --exclude=uos/ ${img_path}/ /mnt/ && \
+                    cp /usr/share/syslinux/memdisk /mnt/ && \
+                    mkdir -p /mnt/EFI/BOOT/ && \
+                    cp -r /usr/share/syslinux/efi64/* /mnt/EFI/BOOT/ && \
+                    cp -r /usr/share/syslinux/efi64/syslinux.efi /mnt/EFI/BOOT/BOOTX64.EFI && \
+                    cp /data/srv/tftp/pxelinux.cfg/default /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/vmlinuz#/vmlinuz#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/initrd#/initrd#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/\\([a-zA-Z_]\\+\\)/initrd#/\\1/initrd#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/iso/memdisk#/memdisk#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/#/#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    umount /mnt && \
+                    sync && \
+                    partx -d \${TEMP_IMG_DEV} && \
+                    losetup -d \${TEMP_IMG_DEV} && \
+                    mv /usb/temp.img /usb/${IMG_NAME}.img"
+                umount /dev/console
+            else
+                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
+                    truncate --size \${IMG_SIZE} /usb/temp.img && \
+                    TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
+                    dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/mbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
+                    parted --script \${TEMP_IMG_DEV} mklabel msdos mkpart primary fat32 1MiB 100% set 1 boot on && \
+                    mkfs -t vfat \${TEMP_IMG_DEV}p1 > /dev/null 2>&1 && \
+                    syslinux -i \${TEMP_IMG_DEV}p1 && \
+                    mount \${TEMP_IMG_DEV}p1 /mnt && \
+                    rsync -rt --exclude=initrd.gz ${img_path}/uos/usb/ /mnt/ && \
+                    rsync -rt --exclude=iso/ --exclude=uos/ ${img_path}/ /mnt/ && \
+                    cp /usr/share/syslinux/memdisk /mnt/ && \
+                    cp /usr/share/syslinux/*.c32 /mnt/ && \
+                    cp /data/srv/tftp/pxelinux.cfg/default /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/vmlinuz#/vmlinuz#g' /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/initrd#/initrd#g' /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/\\([a-zA-Z_]\\+\\)/initrd#/\\1/initrd#g' /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/iso/memdisk#/memdisk#g' /mnt/syslinux.cfg && \
+                    sed -i 's#http://${builder_config_host_ip}/tftp/images/#/#g' /mnt/syslinux.cfg && \
+                    umount /mnt && \
+                    sync && \
+                    partx -d \${TEMP_IMG_DEV} && \
+                    losetup -d \${TEMP_IMG_DEV} && \
+                    mv /usb/temp.img /usb/${IMG_NAME}.img"
+                umount /dev/console
+            fi        fi
     fi
 
     USB_IMG_SIZE=$(du -b ${usb_path}/${name}/${IMG_NAME}.img | awk '{print $1}')
@@ -1495,8 +1728,22 @@ profilesActions() {
             local name=${builder_config_profiles__name[j]}
             local custom_git_arguments=${builder_config_profiles__custom_git_arguments[j]}
 
+            # # Load the profile's conf/config.yml file
+            # resetGlobalProfileConfigVariables
+            # loadProfileConfig ${name}
+
+            # # Skip if profile is set for ipxe and generating pxe menu
+            # if [ "${profile_config_kernel_type-}" == "ipxe" ] && [ "${passedFunction}" != "genProfileIpxeMenu" ] && [ "${passedFunction}" != "genProfileIpxeGoto" ] && [ "${passedFunction}" != "genProfileVirtualPxeMenu" ]; then
+            #     continue
+            # fi
+
+            # # Skip if profile is set for pxe and generating ipxe menu
+            # if [ "${profile_config_kernel_type-}" != "ipxe" ] && [ "${passedFunction}" != "genProfilePxeMenu" ] && [ "${passedFunction}" != "genProfileVirtualPxeMenu" ]; then
+            #     continue
+            # fi
+
             # if build.sh switch --profile is used 
-            if [ ! -z "${SINGLE_PROFILE}" ] && [ "${passedFunction}" != "genProfilePxeMenu" ] ; then
+            if [ ! -z "${SINGLE_PROFILE}" ] && [ "${passedFunction}" != "genProfilePxeMenu" ] && [ "${passedFunction}" != "genProfileIpxeMenu" ] && [ "${passedFunction}" != "genProfileIpxeGoto" ]; then
                 if [ "${SINGLE_PROFILE}" == "${name}" ]; then
                     # found profile name and will continue
                     if [ "${passedFunction}" != "getProfileNumber" ]; then
@@ -1656,6 +1903,24 @@ syncProfiles() {
         profilesActions buildProfile
     else
         logMsg "User decided to skip the execution of profile-specific build scripts."
+    fi
+}
+
+startGitea() {
+    if docker ps | grep $(basename $(pwd))_mirror_1 > /dev/null; then
+        printDatedInfoMsg "Gitea already running"
+        logInfoMsg "Gitea already running"
+    else 
+        local message="Starting Gitea"
+        if podman -v >/dev/null 2>&1; then
+            run "${message}" \
+                "scripts/espctl.sh up mirror && sleep 5" \
+                "${LOG_FILE}"
+        else
+            run "${message}" \
+                "docker-compose up -d mirror && sleep 5" \
+                "${LOG_FILE}"
+        fi
     fi
 }
 

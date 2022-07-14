@@ -1,0 +1,103 @@
+#!ipxe
+#prompt --key 0x02 --timeout 3000 Press Ctrl-B for the iPXE command line... && shell ||
+
+#console --x 1024 --y 768
+console --x 800 --y 600 --picture http://10.55.10.6/tftp/pxe_bg.png || goto loadipxe
+
+# Some menu defaults
+set menu-timeout 20000
+set submenu-timeout ${menu-timeout}
+isset ${menu-default} || set menu-default exit
+
+# Figure out if client is 64-bit capable
+cpuid --ext 29 && set arch x64 || set arch x86
+cpuid --ext 29 && set archl amd64 || set archl i386
+cpuid --ext 29 && set efiarch 64 || set efiarch i386
+
+###################### MAIN MENU ####################################
+
+:menu
+menu iPXE boot menu for ${initiator-iqn}
+item --gap --             ------------------------- Operating systems ------------------------------
+item --key w winpe        Boot WinPE
+item --key t tinycore     Boot TinyCore
+item --key l linuxmenu    Boot Linux Menu
+item --key p pxelinux     Boot PXELINUX Menu
+item --key s syslinux     Boot SYSLINUX Menu
+item --gap --             ------------------------- Advanced options -------------------------------
+item --key c config       Configure settings
+item shell                Drop to iPXE shell
+item reboot               Reboot computer
+item
+item --key x exit         Exit iPXE and continue BIOS boot
+choose --timeout ${menu-timeout} --default ${menu-default} selected || goto cancel
+set menu-timeout 0
+goto ${selected}
+
+:winpe
+cpuid --ext 29 && set arch amd64 || set arch x86
+
+kernel http://10.55.10.6/tftp/images/ipxe/wimboot
+initrd http://10.55.10.6/tftp/images/winpe/Boot/BCD         BCD
+initrd http://10.55.10.6/tftp/images/winpe/Boot/boot.sdi    boot.sdi
+initrd http://10.55.10.6/tftp/images/winpe/sources/boot.wim boot.wim
+boot || goto menu
+
+
+:tinycore
+set base http://tinycorelinux.net/11.x/x86/release/distribution_files
+
+cpuid --ext 29 && set arch 64 || set arch
+
+kernel ${base}/vmlinuz${arch} initrd=rootfs.gz initrd=modules${arch}.gz
+initrd ${base}/rootfs.gz
+initrd ${base}/modules${arch}.gz
+boot || goto menu
+
+:linuxmenu
+iseq ${platform} efi && goto syslinux || goto pxelinux
+
+:pxelinux
+imgfree
+#set 210:string tftp://10.55.10.6/legacy/
+set 210:string http://10.55.10.6/tftp/legacy/
+set filename ${210:string}pxelinux.0
+chain ${filename} ||
+echo PXELINUX Netboot failed
+shell
+
+:syslinux
+imgfree
+#set 210:string tftp://10.55.10.6/efi${efiarch}/
+set 210:string http://10.55.10.6/tftp/efi${efiarch}/
+set filename ${210:string}syslinux.efi
+chain ${filename} ||
+echo SYSLINUX Netboot failed
+shell
+
+:loadipxe
+set 210:string tftp://10.55.10.6/ipxe/legacy/
+set filename ${210:string}undionly.kpxe
+chain ${filename} ||
+echo iPXE Netboot failed
+shell
+
+:cancel
+echo You cancelled the menu, dropping you to a shell
+
+:shell
+echo Type 'exit' to get the back to the menu
+shell
+set menu-timeout 0
+set submenu-timeout 0
+goto menu
+
+:failed
+echo Booting failed, dropping to shell
+goto shell
+
+:reboot
+reboot
+
+:exit
+exit

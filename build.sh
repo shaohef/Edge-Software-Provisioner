@@ -33,6 +33,8 @@ printHelp() {
     printMsg "  ${T_BOLD}-s${T_RESET}, --skip-build-uos       Skips building the Micro Operating System (uOS)"
     printMsg "  ${T_BOLD}-S${T_RESET}, --skip-image-builds    Skips building all images and uOS"
     printMsg "  ${T_BOLD}-e${T_RESET}, --skip-image-embedded  Skips embedding custom files into uOS"
+    printMsg "  ${T_BOLD}-n${T_RESET}, --skip-net             Skips network autodetection and verification"
+    printMsg "  ${T_BOLD}-g${T_RESET}, --skip-git             Skips starting Gitea service"
     printMsg "  ${T_BOLD}-k${T_RESET}, --uos-kernel           Valid input value is [ intel | intel.signed | clearlinux | ubuntu | ubuntu.signed | fedora | redhat | alpine ].  Defaults to 'intel'. 'redhat' requires a licensed rhel system."
     printMsg "  ${T_BOLD}-c${T_RESET}, --clean-uos            will clean the intermediary docker images used during building of uOS"
     printMsg "  ${T_BOLD}-b${T_RESET}, --skip-backups         Skips the creation of backup files inside the data directory when re-running build.sh"
@@ -56,6 +58,8 @@ export SKIP_BACKUPS="false"
 export SKIP_PROFILES="false"
 export SKIP_PROFILE_BUILDS="false"
 export SKIP_PROFILE_EMBEDDED="false"
+export SKIP_NET="false"
+export SKIP_GIT="false"
 export SINGLE_PROFILE=""
 export BOOT_PROFILE=""
 export FROM_CONTAINER="false"
@@ -80,6 +84,10 @@ while (( "$#" )); do
         "-e" | "--skip-profile-embedded" )  export SKIP_PROFILE_EMBEDDED="true"
                                             shift 1;;
         "-P" | "--skip-profiles"       )    export SKIP_PROFILES="true"
+                                            shift 1;;
+        "-n" | "--skip-net"            )    export SKIP_NET="true"
+                                            shift 1;;
+        "-g" | "--skip-git"            )    export SKIP_GIT="true"
                                             shift 1;;
         "-k" | "--uos-kernel"          )    export UOS_KERNEL=$2
                                             shift 2;;
@@ -165,7 +173,7 @@ fi
 if [[ "${PUSH}" != "" ]]; then
     export BUILD_IMAGES="false"
     export SKIP_PROFILES="true"
-    if (docker images | grep ${PUSH}/builder-core >/dev/null 2>&1); then
+    if (docker images | grep ${PUSH}/builder-core > /dev/null 2>&1); then
         printBanner "Pushing container images. (NOTE: run 'docker login' first if login required otherwise this command will fail.)"
         logMsg "Pushing container images..."
         for image in $(docker images | grep ${PUSH}/builder- | grep -v none | awk '{print $1}'); do 
@@ -381,8 +389,9 @@ if [[ "${BUILD_IMAGES}" == "true" ]]; then
         rsync -rtc ./scripts ./dockerfiles/core/files/ && \
         rsync -rtc ./template ./dockerfiles/core/files/ && \
         rsync -rtc ./*.sh ./dockerfiles/core/files/ && \
-        mkdir -p ./dockerfiles/core/files/data/srv/tftp/images/ && \
-        rsync -rtc ./data/srv/tftp/images/uos ./dockerfiles/core/files/data/srv/tftp/images/'; \
+        mkdir -p ./dockerfiles/core/files/data/srv/tftp/images/uos/ && \
+        rsync -rtc ./data/srv/tftp/images/uos/initrd ./dockerfiles/core/files/data/srv/tftp/images/uos/initrd && \
+        rsync -rtc ./data/srv/tftp/images/uos/vmlinuz ./dockerfiles/core/files/data/srv/tftp/images/uos/vmlinuz'; \
         docker build --rm ${DOCKER_BUILD_ARGS} -t builder-core dockerfiles/core" \
         ${LOG_FILE}
 
@@ -404,8 +413,14 @@ else
     logMsg "Skipping Build of Utility Images..."
 fi
 
-printBanner "Checking ${C_GREEN}Network Config..."
-logMsg "Checking Network Config..."
+
+if [[ "${SKIP_NET}" == "true" ]]; then
+    printBanner "Skipping ${C_GREEN}Network Config Check..."
+    logMsg "Skipping Network Config Check..."
+else
+    printBanner "Checking ${C_GREEN}Network Config..."
+    logMsg "Checking Network Config..."
+fi
 # This function will ensure that the config options for
 # network options that users can specify in conf/config.yml
 # are set to _something_ non-empty.
@@ -416,9 +431,15 @@ verifyNetworkConfig
 # files for a profile, rendering templates for a profile, etc.
 source "scripts/profileutils.sh"
 source "scripts/pxemenuutils.sh"
-printBanner "Starting ${C_GREEN}Gitea..."
-logMsg "Starting Gitea..."
-startGitea
+
+if [[ "${SKIP_GIT}" == "true" ]]; then
+    printBanner "Skipping ${C_GREEN}Starting Gitea..."
+    logMsg "Skipping Starting Gitea..."
+else
+    printBanner "Starting ${C_GREEN}Gitea..."
+    logMsg "Starting Gitea..."
+    startGitea
+fi
 
 if [[ "${SKIP_PROFILES}" == "false" ]]; then
     printBanner "Synchronizing ${C_GREEN}Profiles..."
@@ -435,22 +456,29 @@ printBanner "Rendering ${C_GREEN}System Templates..."
 logMsg "Rendering System Templates..."
 
 if [[ "${DYNAMIC_PROFILE}" == "false" ]]; then
-  # Begin the process of generating a temporary
-  # pxelinux.cfg/default file
-  printBanner "Generating ${C_GREEN}PXE Menu..."
-  logMsg "Generating PXE Menu..."
-  genPxeMenuHead
-  profilesActions genProfilePxeMenu
-  genPxeMenuTail
+    # Begin the process of generating a temporary
+    # pxelinux.cfg/default file
+    printBanner "Generating ${C_GREEN}PXE Menu..."
+    logMsg "Generating PXE Menu..."
+    genPxeMenuHead
+    profilesActions genProfilePxeMenu
+    genPxeMenuTail
 
-  renderSystemNetworkTemplates
-  updatePxeMenu
+    logMsg "Generating IPXE Menu..."
+    genIpxeMenuHead
+    profilesActions genProfileIpxeMenu
+    genIpxeMenuMiddle
+    profilesActions genProfileIpxeGoto
+
+    renderSystemNetworkTemplates
+    updatePxeMenu
+    updateIpxeMenu
 else
-  source "scripts/dynamicprofile.sh"
-  logMsg "Setting up DynamicProfile without PXE boot menu..."
-  renderSystemNetworkTemplates
-  setDynamicProfileArgs
-  exportProfileInfo
+    source "scripts/dynamicprofile.sh"
+    logMsg "Setting up DynamicProfile without PXE boot menu..."
+    renderSystemNetworkTemplates
+    setDynamicProfileArgs
+    exportProfileInfo
 fi
 # Finishing message
 printBanner "${C_GREEN}Build Complete!"

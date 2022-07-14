@@ -19,7 +19,6 @@
 
 # If omitted, defaults to 8.8.8.8
 # Note that the primary DNS is always host_ip
-
 # network_dns_primary: 8.8.4.4
 # network_dns_secondary: 8.8.8.8
 

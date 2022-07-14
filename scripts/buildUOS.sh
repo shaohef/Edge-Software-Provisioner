@@ -55,8 +55,8 @@ if podman -v >/dev/null 2>&1; then
         docker exec -i hostbuilder-docker docker tag localhost/uos/firmware-wifi:v1.0 uos/firmware-wifi:v1.0" \
         ../../${LOG_FILE}
     run "(5/12) Compiling tools" \
-        "if docker images | grep builder-uos:${GIT_COMMIT}; then \
-            echo 'builder-uos exists'; \
+        "if docker images | grep builder-uos | grep ${GIT_COMMIT} > /dev/null; then \
+            echo \"builder-uos:${GIT_COMMIT} exists\"; \
         else \
             if docker images | grep builder-uos; then \
                 docker rmi -f $(docker images | grep builder-uos | awk '{print $3}'); \
@@ -104,8 +104,8 @@ else
         "docker build --rm ${DOCKER_BUILD_ARGS} -t uos/firmware-wifi:v1.0 -f ./dockerfiles/firmware/Dockerfile.${UOS_KERNEL} dockerfiles/firmware" \
         ../../${LOG_FILE}
     run "(5/12) Compiling tools" \
-        "if docker images | grep builder-uos:${GIT_COMMIT}; then \
-            echo 'builder-uos exists'; \
+        "if docker images | grep builder-uos | grep ${GIT_COMMIT} > /dev/null; then \
+            echo \"builder-uos:${GIT_COMMIT} exists\"; \
         else \
             if docker images | grep builder-uos; then \
                 docker rmi -f \$(docker images | grep builder-uos | awk '{print \$3}'); \

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright (C) 2020 Intel Corporation
+# Copyright (C) 2021 Intel Corporation
 # SPDX-License-Identifier: BSD-3-Clause
 
 set -u
@@ -31,6 +31,7 @@ printHelp() {
     printMsg " You can specify one the following options:"
     printMsg "  ${T_BOLD}-p${T_RESET}, --profile              Build USB bootable image for the specified Profile. The image will be located in data/usr/share/nginx/html/usb/(Profile Name)/.  If omitted it will build menu system to select a profile from the USB stick."
     printMsg "  ${T_BOLD}-b${T_RESET}, --bios                 Set USB bootable stick to legacy BIOS or EFI, valid options [ efi | bios ].  Defaults to efi."
+    printMsg "  ${T_BOLD}-l${T_RESET}, --bootloader           Set USB bootable stick bootloader to IPXE or SYSLINUX, valid options [ ipxe | syslinux ].  Defaults to ipxe."
     printMsg "  ${T_BOLD}-d${T_RESET}, --dev                  Path to usb devices, for example '/dev/sdc'. WARNING: this will wipe out the target device.  If omitted it will provide instructions how to flash a USB device."
     printMsg "  ${T_BOLD}-m${T_RESET}, --skip-memory          Skip system memory check."
     printMsg "  ${T_BOLD}-g${T_RESET}, --random               Generate a random name for the image."
@@ -43,6 +44,7 @@ printHelp() {
 
 export USB_PROFILE=""
 export USB_BIOS="efi"
+export USB_BOOTLOADER="ipxe"
 export USB_DEV=""
 export USB_RANDOM="false"
 export SKIP_MEMORY="false"
@@ -52,6 +54,8 @@ while (( "$#" )); do
         "-p" | "--profile"             )    export USB_PROFILE=$2
                                             shift 2;;
         "-b" | "--bios"                )    export USB_BIOS=$2
+                                            shift 2;;
+        "-l" | "--bootloader"          )    export USB_BOOTLOADER=$2
                                             shift 2;;
         "-d" | "--dev"                 )    export USB_DEV=$2
                                             shift 2;;

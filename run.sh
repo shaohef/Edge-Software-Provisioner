@@ -54,7 +54,6 @@ printMsg " ${T_BOLD}${C_BLUE}Welcome${T_RESET}"
 printMsg "-------------------------"
 logMsg "Welcome to the builder host run script"
 
-
 if [[ "${DOWN}" == "true" ]]; then
     printDatedInfoMsg "Stopping containers..."
     logMsg "run.sh down containers"
