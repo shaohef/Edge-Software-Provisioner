@@ -43,12 +43,23 @@ RUN sed -i 's|//#define\tCONSOLE_FRAMEBUFFER|#define\tCONSOLE_FRAMEBUFFER|g' /bu
 # Destination folder for compiled files
 WORKDIR /ipxe/
 
+RUN echo -e '#!ipxe\n\ndhcp\nchain menu.ipxe' > /build/src/chain.ipxe
+
+# Compile embedded chain.ipxe for USB/ISO boot
+RUN make -C /build/src/ bin/ipxe.lkrn EMBED=chain.ipxe -j8 && \
+    make -C /build/src/ bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe -j8 && \
+    mkdir -p /ipxe/bin/ && \
+    mkdir -p /ipxe/bin-x86_64-efi/ && \
+    cp /build/src/bin/ipxe.lkrn /ipxe/bin/ipxe.lkrn.chain && \
+    cp /build/src/bin-x86_64-efi/ipxe.efi /ipxe/bin-x86_64-efi/ipxe.efi.chain && \
+    make -C /build/src/ clean
+
 # Compile the files in "bin/"
 ARG IPXE_BIN="bin/ipxe.dsk bin/ipxe.lkrn bin/ipxe.iso bin/ipxe.usb bin/ipxe.pxe bin/undionly.kpxe bin/rtl8139.rom bin/8086100e.mrom bin/80861209.rom bin/10500940.rom bin/10ec8139.rom bin/1af41000.rom bin/8086100f.mrom bin/808610d3.mrom bin/10222000.rom bin/15ad07b0.rom bin/3c509.rom bin/intel.rom bin/intel.mrom"
 # _bin="bin/${IPXE_BIN// / bin\/}" \
 RUN [ -z "${IPXE_BIN}" ] || ( \
     _bin="${IPXE_BIN}" \
-    make -C /build/src/ ${_bin} -j8 \
+    && make -C /build/src/ ${_bin} -j8 \
     && mkdir -p bin/ \
     && for file in ${_bin} ;do ln -v /build/src/${file} /ipxe/${file} ;done \
     )

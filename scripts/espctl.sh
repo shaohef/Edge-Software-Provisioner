@@ -145,16 +145,24 @@ fi
 if [[ "${RESTART}" == "true" ]]; then
   podman restart ${CURDIR}_core_1 2> /dev/null
   podman restart ${CURDIR}_web_1 2> /dev/null
+  podman restart ${CURDIR}_registry-mirror_1 2> /dev/null
+  podman restart ${CURDIR}_squid_1 2> /dev/null
   if podman ps | grep ${CURDIR}_dnsmasq_1 > /dev/null; then
     # Restart only if was up
     podman restart ${CURDIR}_dnsmasq_1 2> /dev/null
   fi
-  podman restart ${CURDIR}_registry-mirror_1 2> /dev/null
-  podman restart ${CURDIR}_squid_1 2> /dev/null
-  podman restart ${CURDIR}_mirror_1 2> /dev/null
-  podman restart ${CURDIR}_smb_1 2> /dev/null
-  podman restart ${CURDIR}_certbot_1 2> /dev/null
-  podman restart ${CURDIR}_dyn-profile_1 2> /dev/null
+  if podman ps | grep ${CURDIR}_mirror_1 > /dev/null; then
+    podman restart ${CURDIR}_mirror_1 2> /dev/null
+  fi
+  if podman ps | grep ${CURDIR}_smb_1 > /dev/null; then
+    podman restart ${CURDIR}_smb_1 2> /dev/null
+  fi
+  if podman ps | grep ${CURDIR}_certbot_1 > /dev/null; then
+    podman restart ${CURDIR}_certbot_1 2> /dev/null
+  fi
+  if podman ps | grep ${CURDIR}_dyn-profile_1 > /dev/null; then
+    podman restart ${CURDIR}_dyn-profile_1 2> /dev/null
+  fi
 fi
 
 if [[ "${UP}" == "true" ]]; then

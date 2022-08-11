@@ -229,7 +229,10 @@ getSecretInfo
 source "scripts/templateutils.sh"
 
 if [[ ! -z "${builder_config_dynamic_profile_enabled+x}" ]]; then
-    if [[ "${builder_config_dynamic_profile_enabled}" == "true" ]]; then
+    if [[ "${builder_config_disable_dyn_profile-x}" == "true" ]] && [[ "${builder_config_dynamic_profile_enabled}" == "true" ]]; then
+        printErrMsg "Dynamic Profile is enabled in 'conf/config.yml' but 'disable_dyn_profile' container build is set to 'true'.  Please set 'disable_dyn_profile' to 'false' and run './build.sh -S' again."
+        exit
+    elif [[ "${builder_config_dynamic_profile_enabled}" == "true" ]]; then
         export DYNAMIC_PROFILE="true"
     fi
 fi
@@ -334,52 +337,72 @@ if [[ "${BUILD_IMAGES}" == "true" ]]; then
     # reduces the footprint of our application
 
     # Build the aws-cli image
-    run "(1/12) Building builder-aws-cli" \
-        "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-aws-cli dockerfiles/aws-cli" \
-        ${LOG_FILE}
-
-    # Build the wget image
-    run "(2/12) Building builder-wget" \
-        "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-wget dockerfiles/wget" \
-        ${LOG_FILE}
+    if [[ "${builder_config_disable_aws_cli-x}" == "true" ]]; then
+        printMsg "(1/11) SKIPPING: Building builder-aws-cli"
+        logMsg "(1/11) SKIPPING: Building builder-aws-cli"
+    else
+        run "(1/11) Building builder-aws-cli" \
+            "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-aws-cli dockerfiles/aws-cli" \
+            ${LOG_FILE}
+    fi
 
     # Build the git image
-    run "(3/12) Building builder-git" \
+    run "(2/11) Building builder-git" \
         "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-git dockerfiles/git" \
         ${LOG_FILE}
 
     # Build the dnsmasq image
-    run "(4/12) Building builder-dnsmasq (~10 min)" \
-        "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-dnsmasq dockerfiles/dnsmasq" \
-        ${LOG_FILE}
+    if [[ "${builder_config_disable_dnsmasq-x}" == "true" ]]; then
+        printMsg "(3/11) SKIPPING: Building builder-dnsmasq"
+        logMsg "(3/11) SKIPPING: Building builder-dnsmasq"
+    else
+        run "(3/11) Building builder-dnsmasq (~10 min)" \
+            "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-dnsmasq dockerfiles/dnsmasq" \
+            ${LOG_FILE}
+    fi
 
     # Build the squid image
-    run "(5/12) Building builder-squid" \
+    run "(4/11) Building builder-squid" \
         "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-squid dockerfiles/squid" \
         ${LOG_FILE}
 
     # Build the web image
-    run "(6/12) Building builder-web" \
+    run "(5/11) Building builder-web" \
         "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-web dockerfiles/nginx" \
         ${LOG_FILE}
 
     # Build the gitea image
-    run "(7/12) Building builder-gitea" \
-        "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-gitea dockerfiles/gitea" \
-        ${LOG_FILE}
+    if [[ "${builder_config_disable_gitea-x}" == "true" ]]; then
+        printMsg "(6/11) SKIPPING: Building builder-gitea"
+        logMsg "(6/11) SKIPPING: Building builder-gitea"
+    else
+        run "(6/11) Building builder-gitea" \
+            "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-gitea dockerfiles/gitea" \
+            ${LOG_FILE}
+    fi
 
     # Build the qemu image
-    run "(8/12) Building builder-qemu" \
-        "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-qemu dockerfiles/qemu" \
-        ${LOG_FILE}
+    if [[ "${builder_config_disable_qemu-x}" == "true" ]]; then
+        printMsg "(7/11) SKIPPING: Building builder-qemu"
+        logMsg "(7/11) SKIPPING: Building builder-qemu"
+    else
+        run "(7/11) Building builder-qemu" \
+            "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-qemu dockerfiles/qemu" \
+            ${LOG_FILE}
+    fi
 
     # Build the smb image
-    run "(9/12) Building builder-smb" \
-        "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-smb dockerfiles/smb" \
-        ${LOG_FILE}
+    if [[ "${builder_config_disable_smb-x}" == "true" ]]; then
+        printMsg "(8/11) SKIPPING: Building builder-smb"
+        logMsg "(8/11) SKIPPING: Building builder-smb"
+    else
+        run "(8/11) Building builder-smb" \
+            "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-smb dockerfiles/smb" \
+            ${LOG_FILE}
+    fi
 
     # Build the core image
-    run "(10/12) Building builder-core" \
+    run "(9/11) Building builder-core" \
         "docker run -t --rm ${DOCKER_RUN_ARGS} --privileged -v $(pwd):/work alpine sh -c 'apk update && apk add --no-cache rsync && \
         cd /work && \
         mkdir -p dockerfiles/core/files/conf/ && \
@@ -396,17 +419,27 @@ if [[ "${BUILD_IMAGES}" == "true" ]]; then
         ${LOG_FILE}
 
     # Build the certbot image
-    run "(11/12) Building builder-certbot" \
-        "docker run -t --rm ${DOCKER_RUN_ARGS} --privileged -v $(pwd):/work alpine sh -c 'apk update && apk add --no-cache rsync && \
-        cd /work && \
-        rsync -rtc ./scripts ./dockerfiles/certbot/'; \
-        docker build --rm ${DOCKER_BUILD_ARGS} -t builder-certbot dockerfiles/certbot" \
-        ${LOG_FILE}
+    if [[ "${builder_config_disable_certbot-x}" == "true" ]]; then
+        printMsg "(10/11) SKIPPING: Building builder-certbot"
+        logMsg "(10/11) SKIPPING: Building builder-certbot"
+    else
+        run "(10/11) Building builder-certbot" \
+            "docker run -t --rm ${DOCKER_RUN_ARGS} --privileged -v $(pwd):/work alpine sh -c 'apk update && apk add --no-cache rsync && \
+            cd /work && \
+            rsync -rtc ./scripts ./dockerfiles/certbot/'; \
+            docker build --rm ${DOCKER_BUILD_ARGS} -t builder-certbot dockerfiles/certbot" \
+            ${LOG_FILE}
+    fi
 
     # Build the dynamic profile image
-    run "(12/12) Building dynamic profile service" \
-        "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-dyn-profile dockerfiles/dyn-profile" \
-        ${LOG_FILE}
+    if [[ "${builder_config_disable_dyn_profile-x}" == "true" ]]; then
+        printMsg "(11/11) SKIPPING: Building builder-dyn-profile"
+        logMsg "(11/11) SKIPPING: Building builder-dyn-profile"
+    else
+        run "(11/11) Building dynamic profile service" \
+            "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-dyn-profile dockerfiles/dyn-profile" \
+            ${LOG_FILE}
+    fi
 
 else
     printDatedInfoMsg "Skipping Build of ${C_GREEN}Utility Images..."
@@ -432,7 +465,7 @@ verifyNetworkConfig
 source "scripts/profileutils.sh"
 source "scripts/pxemenuutils.sh"
 
-if [[ "${SKIP_GIT}" == "true" ]]; then
+if [[ "${SKIP_GIT}" == "true" ]] || [[ "${builder_config_disable_gitea-x}" == "true" ]]; then
     printBanner "Skipping ${C_GREEN}Starting Gitea..."
     logMsg "Skipping Starting Gitea..."
 else

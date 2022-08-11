@@ -80,8 +80,10 @@ goto shell
 reboot
 
 :exit
+sanboot --no-describe --drive 0x80
 exit
 
 :local
+sanboot --no-describe --drive 0x80
 exit
 

@@ -1257,7 +1257,11 @@ genProfileUsbBoot() {
     local usb_path="data/usr/share/nginx/html/usb"
     local img_path="data/srv/tftp/images"
     local memdiskPath="data/srv/tftp/images/iso/memdisk"
-    local ymlPath="dockerfiles/uos/uos-wifi.yml"
+    if [[ "${builder_config_disable_uos_wifi-x}" == "true" ]]; then
+        local ymlPath="dockerfiles/uos/uos.yml"
+    else
+        local ymlPath="dockerfiles/uos/uos-wifi.yml"
+    fi
     local syslinuxTemplate="template/pxelinux.cfg/default.head"
     local tmp_path="data/tmp"
     local uosBuildPath="$(pwd)/dockerfiles/uos"
@@ -1321,19 +1325,28 @@ genProfileUsbBoot() {
         else
             # Use Micro OS (uOS).
             logMsg "Preparing bootable USB stick for ${name} profile."
-            logMsg "Running command: docker run -i --rm --privileged --net host --name builder-usb -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd)/${usb_path}/${name}:/uos:shared ${UOS_BUILDER} -c \"cd /uos && /usr/bin/linuxkit build -format kernel+initrd /uos/uos.yml\""
+
+            if [[ "${builder_config_disable_uos_wifi-x}" == "true" ]]; then
+                logMsg "Running command: docker run -i --rm --privileged --net host --name builder-usb -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd)/${usb_path}/${name}:/uos:shared ${UOS_BUILDER} -c \"cd /uos && /usr/bin/linuxkit build -format kernel+initrd /uos/uos.yml\""
+                local INITRD_CMD="cd /uos && \
+                cp /uos/uos-initrd.img /target/initrd && \
+                xzcat /uos/uos-initrd.img | gzip > /target/initrd.gz && \
+                cp /uos/uos-kernel /target/vmlinuz"
+            else
+                logMsg "Running command: docker run -i --rm --privileged --net host --name builder-usb -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd)/${usb_path}/${name}:/uos:shared ${UOS_BUILDER} -c \"cd /uos && /usr/bin/linuxkit build -format kernel+initrd /uos/uos-wifi.yml\""
+                local INITRD_CMD="cd /uos && \
+                /usr/bin/linuxkit build -format kernel+initrd /uos/uos-wifi.yml && \
+                zcat /uos/uos-wifi-initrd.img | pv | xz -T0 --check=crc32 > /target/initrd && \
+                mv /uos/uos-wifi-initrd.img /target/initrd.gz && \
+                mv /uos/uos-wifi-kernel /target/vmlinuz"
+            fi
 
             run "Preparing bootable USB stick for ${name} profile. (~10 min)" \
                 "docker run -t --rm --privileged --net host --name builder-usb \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v ${uosBuildPath}:/uos:shared \
                 -v ${TFTP_IMAGES}/uos/usb:/target:shared \
-                ${UOS_BUILDER} -c \
-                    \"cd /uos && \
-                    /usr/bin/linuxkit build -format kernel+initrd /uos/uos-wifi.yml && \
-                    zcat /uos/uos-wifi-initrd.img | pv | xz -T0 --check=crc32 > /target/initrd && \
-                    mv /uos/uos-wifi-initrd.img /target/initrd.gz && \
-                    mv /uos/uos-wifi-kernel /target/vmlinuz\"" \
+                ${UOS_BUILDER} -c \"${INITRD_CMD}\"" \
                 ${LOG_FILE}
 
             local kernelPath="data/srv/tftp/images/uos/usb/vmlinuz"
@@ -1379,9 +1392,12 @@ genProfileUsbBoot() {
 
         printDatedMsg "Building bootable USB stick for ${name} profile."
         logMsg "Building bootable USB stick for ${name} profile."
+
+        export CALC_IMG_SIZE=$(( ((${KERNEL_SIZE} + ${INITRD_SiZE} + 52428800)/4096) + ( (${KERNEL_SIZE} + ${INITRD_SiZE} + 52428800) % 4096 > 0 ) ))
+
         if [ "${USB_BIOS}" == "efi" ]; then
-            docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${KERNEL_SIZE} + ${INITRD_SiZE} + 52428800)) && \
-                truncate --size \${IMG_SIZE} /usb/temp.img && \
+            docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\${CALC_IMG_SIZE} && \
+                truncate --io-blocks --size \${IMG_SIZE} /usb/temp.img && \
                 TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
                 dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/gptmbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
                 parted --script \${TEMP_IMG_DEV} mklabel gpt mkpart ESP fat32 1MiB 100% set 1 esp on && \
@@ -1401,8 +1417,8 @@ genProfileUsbBoot() {
                 mv /usb/temp.img /usb/${IMG_NAME}.img"
             umount /dev/console
         else
-            docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${KERNEL_SIZE} + ${INITRD_SiZE} + 52428800)) && \
-                truncate --size \${IMG_SIZE} /usb/temp.img && \
+            docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\${CALC_IMG_SIZE} && \
+                truncate --io-blocks --size \${IMG_SIZE} /usb/temp.img && \
                 TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
                 parted --script \${TEMP_IMG_DEV} mklabel msdos mkpart primary fat32 1MiB 100% set 1 boot on && \
                 mkfs -t vfat \${TEMP_IMG_DEV}p1 > /dev/null 2>&1 && \
@@ -1453,7 +1469,11 @@ genAllProfileUsbBoot() {
     local memdiskPath="data/srv/tftp/images/iso/memdisk"
     local kernelPath="data/srv/tftp/images/uos/vmlinuz"
     local initrdPath="data/srv/tftp/images/uos/initrd"
-    local ymlPath="dockerfiles/uos/uos-wifi.yml"
+    if [[ "${builder_config_disable_uos_wifi-x}" == "true" ]]; then
+        local ymlPath="dockerfiles/uos/uos.yml"
+    else
+        local ymlPath="dockerfiles/uos/uos-wifi.yml"
+    fi
     local uosBuildPath="$(pwd)/dockerfiles/uos"
 
     mkdir -p ${usb_path}/${name}
@@ -1482,21 +1502,29 @@ genAllProfileUsbBoot() {
     if [ ! -f ${usb_path}/${name}/${IMG_NAME}.img ]; then
 
         logMsg "Preparing bootable USB stick for ${name} profiles."
-        logMsg "Running command: docker run -i --rm --privileged --net host --name builder-usb -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd)/${usb_path}/${name}:/uos:shared ${UOS_BUILDER} -c \"cd /uos && /usr/bin/linuxkit build -format kernel+initrd /uos/uos-wifi.yml\""
 
-        run "Preparing bootable USB stick for ${name} profiles. (~10 min)" \
-            "docker run -t --rm --privileged --net host --name builder-usb \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v ${uosBuildPath}:/uos:shared \
-            -v ${TFTP_IMAGES}/uos/usb:/target:shared \
-            ${UOS_BUILDER} -c \
-                \"cd /uos && \
-                /usr/bin/linuxkit build -format kernel+initrd /uos/uos-wifi.yml && \
-                zcat /uos/uos-wifi-initrd.img | pv | xz -T0 --check=crc32 > /target/initrd && \
-                mv /uos/uos-wifi-initrd.img /target/initrd.gz && \
-                mv /uos/uos-wifi-kernel /target/vmlinuz\"" \
+        if [[ "${builder_config_disable_uos_wifi-x}" == "true" ]]; then
+            logMsg "WIFI Disabled and using existing uOS Kernel"
+            run "Preparing bootable USB stick for ${name} profiles." \
+                "cp ${kernelPath} ${TFTP_IMAGES}/uos/usb/ && \
+                cp ${initrdPath} ${TFTP_IMAGES}/uos/usb/" \
             ${LOG_FILE}
+        else
+            logMsg "Running command: docker run -i --rm --privileged --net host --name builder-usb -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd)/${usb_path}/${name}:/uos:shared ${UOS_BUILDER} -c \"cd /uos && /usr/bin/linuxkit build -format kernel+initrd /uos/uos-wifi.yml\""
+            local INITRD_CMD="cd /uos && \
+            /usr/bin/linuxkit build -format kernel+initrd /uos/uos-wifi.yml && \
+            zcat /uos/uos-wifi-initrd.img | pv | xz -T0 --check=crc32 > /target/initrd && \
+            mv /uos/uos-wifi-initrd.img /target/initrd.gz && \
+            mv /uos/uos-wifi-kernel /target/vmlinuz"
 
+            run "Preparing bootable USB stick for ${name} profiles. (~10 min)" \
+                "docker run -t --rm --privileged --net host --name builder-usb \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v ${uosBuildPath}:/uos:shared \
+                -v ${TFTP_IMAGES}/uos/usb:/target:shared \
+                ${UOS_BUILDER} -c \"${INITRD_CMD}\"" \
+                ${LOG_FILE}
+        fi
 
         for profile_name in $(ls ${WEB_PROFILE}/ | grep -v base); do        
             if [ "$(ls -A ${EMBEDDED_FILES}/${profile_name} 2> /dev/null )" ] || [ "$(ls -A ${WEB_PROFILE}/${profile_name}/embedded 2> /dev/null)" ]; then
@@ -1519,70 +1547,63 @@ genAllProfileUsbBoot() {
             fi
         done
 
-        rm ${TFTP_IMAGES}/uos/usb/initrd.gz
+        # initrd.gz is left around to speed up the embedded process and the removed
+        if [ -f ${TFTP_IMAGES}/uos/usb/initrd.gz ]; then 
+            rm ${TFTP_IMAGES}/uos/usb/initrd.gz
+        fi
+
         USB_IMG_SIZE=$(du -bcs ${TFTP_IMAGES}/uos/usb/* | grep total | awk '{print $1}')
         BOOT_IMAGES_SiZE=$(du -bcs --exclude=iso* --exclude=uos* ${img_path}/* | grep total | awk '{print $1}')
 
-        printDatedMsg "Building bootable USB stick for ${name} profiles."
+        message="Building bootable USB stick for ${name} profiles."
+        printDatedMsg "${message}"
         logMsg "Building bootable USB stick for ${name} profiles."
 
+        umount /dev/console > /dev/null 2>&1
         if [ "${USB_BOOTLOADER}" == "ipxe" ]; then
+            export CALC_IMG_SIZE=$(( (52428800/4096) + ( 52428800 % 4096 > 0 ) ))
             if [ "${USB_BIOS}" == "efi" ]; then
-                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
-                    truncate --size \${IMG_SIZE} /usb/temp.img && \
+                docker run -t --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "\
+                    truncate --io-blocks --size ${CALC_IMG_SIZE} /usb/temp.img && \
                     TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
                     dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/gptmbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
                     parted --script \${TEMP_IMG_DEV} mklabel gpt mkpart ESP fat32 1MiB 100% set 1 esp on && \
                     mkfs -t vfat \${TEMP_IMG_DEV}p1 && \
                     mount \${TEMP_IMG_DEV}p1 /mnt && \
-                    rsync -rt --exclude=initrd.gz ${img_path}/uos/usb/ /mnt/ && \
-                    rsync -rt --exclude=iso/ --exclude=uos/ ${img_path}/ /mnt/ && \
-                    cp /usr/share/syslinux/memdisk /mnt/ && \
                     mkdir -p /mnt/EFI/BOOT/ && \
-                    cp -r /usr/share/syslinux/efi64/* /mnt/EFI/BOOT/ && \
-                    cp -r /usr/share/syslinux/efi64/syslinux.efi /mnt/EFI/BOOT/BOOTX64.EFI && \
-                    cp /data/srv/tftp/pxelinux.cfg/default /mnt/EFI/BOOT/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/vmlinuz#/vmlinuz#g' /mnt/EFI/BOOT/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/initrd#/initrd#g' /mnt/EFI/BOOT/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/\\([a-zA-Z_]\\+\\)/initrd#/\\1/initrd#g' /mnt/EFI/BOOT/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/iso/memdisk#/memdisk#g' /mnt/EFI/BOOT/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/#/#g' /mnt/EFI/BOOT/syslinux.cfg && \
+                    cp /data/srv/tftp/ipxe/efi64/ipxe.efi /mnt/EFI/BOOT/BOOTX64.EFI && \
                     umount /mnt && \
                     sync && \
                     partx -d \${TEMP_IMG_DEV} && \
                     losetup -d \${TEMP_IMG_DEV} && \
                     mv /usb/temp.img /usb/${IMG_NAME}.img"
-                umount /dev/console
             else
-                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
-                    truncate --size \${IMG_SIZE} /usb/temp.img && \
+                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "\
+                    truncate --io-blocks --size ${CALC_IMG_SIZE} /usb/temp.img && \
                     TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
                     dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/mbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
                     parted --script \${TEMP_IMG_DEV} mklabel msdos mkpart primary fat32 1MiB 100% set 1 boot on && \
                     mkfs -t vfat \${TEMP_IMG_DEV}p1 > /dev/null 2>&1 && \
                     syslinux -i \${TEMP_IMG_DEV}p1 && \
                     mount \${TEMP_IMG_DEV}p1 /mnt && \
-                    rsync -rt --exclude=initrd.gz ${img_path}/uos/usb/ /mnt/ && \
-                    rsync -rt --exclude=iso/ --exclude=uos/ ${img_path}/ /mnt/ && \
-                    cp /usr/share/syslinux/memdisk /mnt/ && \
-                    cp /usr/share/syslinux/*.c32 /mnt/ && \
-                    cp /data/srv/tftp/pxelinux.cfg/default /mnt/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/vmlinuz#/vmlinuz#g' /mnt/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/initrd#/initrd#g' /mnt/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/uos/\\([a-zA-Z_]\\+\\)/initrd#/\\1/initrd#g' /mnt/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/iso/memdisk#/memdisk#g' /mnt/syslinux.cfg && \
-                    sed -i 's#http://${builder_config_host_ip}/tftp/images/#/#g' /mnt/syslinux.cfg && \
+                    cp /usr/share/syslinux/ldlinux.c32 /mnt/ && \
+                    echo 'SAY iPXE boot image' > /mnt/syslinux.cfg && \
+                    echo 'TIMEOUT 2' >> /mnt/syslinux.cfg && \
+                    echo 'DEFAULT ipxe.lkrn' >> /mnt/syslinux.cfg && \
+                    echo 'LABEL ipxe.lkrn' >> /mnt/syslinux.cfg && \
+                    echo ' KERNEL ipxe.krn' >> /mnt/syslinux.cfg && \
+                    cp /data/srv/tftp/ipxe/legacy/ipxe.lkrn /mnt/ipxe.lkrn && \
                     umount /mnt && \
                     sync && \
                     partx -d \${TEMP_IMG_DEV} && \
                     losetup -d \${TEMP_IMG_DEV} && \
                     mv /usb/temp.img /usb/${IMG_NAME}.img"
-                umount /dev/console
             fi
         else
+            export CALC_IMG_SIZE=$(( ((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)/4096) + ( (${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800) % 4096 > 0 ) ))
             if [ "${USB_BIOS}" == "efi" ]; then
-                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
-                    truncate --size \${IMG_SIZE} /usb/temp.img && \
+                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "\
+                    truncate --io-blocks --size ${CALC_IMG_SIZE} /usb/temp.img && \
                     TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
                     dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/gptmbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
                     parted --script \${TEMP_IMG_DEV} mklabel gpt mkpart ESP fat32 1MiB 100% set 1 esp on && \
@@ -1605,10 +1626,9 @@ genAllProfileUsbBoot() {
                     partx -d \${TEMP_IMG_DEV} && \
                     losetup -d \${TEMP_IMG_DEV} && \
                     mv /usb/temp.img /usb/${IMG_NAME}.img"
-                umount /dev/console
             else
-                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "IMG_SIZE=\$((${USB_IMG_SIZE} + ${BOOT_IMAGES_SiZE} + 52428800)) && \
-                    truncate --size \${IMG_SIZE} /usb/temp.img && \
+                docker run -it --rm --privileged ${DOCKER_RUN_ARGS} -v /dev:/dev:shared -v $(pwd)/data:/data -v $(pwd)/${usb_path}/${name}:/usb ${UOS_BUILDER} -c "\
+                    truncate --io-blocks --size ${CALC_IMG_SIZE} /usb/temp.img && \
                     TEMP_IMG_DEV=\$(losetup --find --show /usb/temp.img) && \
                     dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/mbr.bin of=\${TEMP_IMG_DEV} > /dev/null 2>&1 && \
                     parted --script \${TEMP_IMG_DEV} mklabel msdos mkpart primary fat32 1MiB 100% set 1 boot on && \
@@ -1630,9 +1650,10 @@ genAllProfileUsbBoot() {
                     partx -d \${TEMP_IMG_DEV} && \
                     losetup -d \${TEMP_IMG_DEV} && \
                     mv /usb/temp.img /usb/${IMG_NAME}.img"
-                umount /dev/console
-            fi        fi
+            fi
+        fi
     fi
+    umount /dev/console
 
     USB_IMG_SIZE=$(du -b ${usb_path}/${name}/${IMG_NAME}.img | awk '{print $1}')
 

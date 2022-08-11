@@ -57,6 +57,24 @@ detectDHCP() {
     fi
 }
 
+getESPDnsmasqProcess() {
+    local dnsmasq_process_id=$(netstat -tunlp |grep dnsmasq |grep :67 | awk "{print \$6}" | sed "s#\/.*##")
+    local regex='^[0-9]+$'
+    if [[ ! -z ${dnsmasq_process_id+x} ]] && [[ ${dnsmasq_process_id} =~ ${regex} ]]; then
+        local espDir=$(realpath  $(dirname -- "${BASH_SOURCE}" ) | sed "s#scripts##")
+        local mountinfo=$(cat /proc/${dnsmasq_process_id}/mountinfo |grep ${espDir})
+        if [[ ${mountinfo} != "" ]]; then
+            echo ${dnsmasq_process_id}
+        else
+            # No local proccess ID found, returning empty value
+            echo ""
+        fi
+    else
+        # No local proccess ID found, returning empty value
+        echo ""
+    fi
+}
+
 # Checks for empty network-related configuration items in
 # the conf/config.yml file and sets defaults if any
 # are not set.
@@ -66,6 +84,7 @@ verifyNetworkConfig() {
     local ipRoute=$(getMyDefaultRoute)
     local broadcast=$(getMyBroadcast)
     local subnet=$(getMySubnet)
+    local dnsmasq_pid=$(getESPDnsmasqProcess)
     if [[ "${SKIP_NET}" == "false" ]]; then
         local DHCPserver=$(detectDHCP)
     else
@@ -210,6 +229,7 @@ renderSystemNetworkTemplates() {
     local networkDnsSecondaryPlaceholder=("@@NETWORK_DNS_SECONDARY@@" "@@ESP_NETWORK_DNS_SECONDARY@@" "@@RNI_NETWORK_DNS_SECONDARY@@" "@@EDGEBUILDER_NETWORK_DNS_SECONDARY@@")
     local pxeCommentPlaceholder=("@@PXE_COMMENT@@" "@@ESP_PXE_COMMENT@@" "@@RNI_PXE_COMMENT@@" "@@EDGEBUILDER_PXE_COMMENT@@")
     local interfacePlaceholder=("@@INTERFACE_BINDING@@" "@@ESP_INTERFACE_BINDING@@" "@@RNI_INTERFACE_BINDING@@")
+    local ipMappingPlaceholder=("@@IP_MAPPING@@" "@@ESP_IP_MAPPING@@" "@@RNI_IP_MAPPING@@")
 
     # Replace all the potential variables in the staged files.
     # Note that profile-scoped variables are not accessible here.
@@ -232,6 +252,16 @@ renderSystemNetworkTemplates() {
                 sed -i -e "s/${interfacePlaceholder[i]}//g" ${stgFile}
             else
                 sed -i -e "s/${interfacePlaceholder[i]}/interface=${builder_config_interface}\nbind-interfaces/g" ${stgFile}
+            fi
+            if [[ ! -z "${builder_config_ip_mapping__mac+x}" ]]; then
+                local ipMapping=""
+                for ((j = 0; j < "${#builder_config_ip_mapping__mac[@]}"; j += 1)); do
+                    local dhcphost="dhcp-host=${builder_config_ip_mapping__mac[j]},${builder_config_ip_mapping__ip[j]}"
+                    ipMapping="$ipMapping$dhcphost\n"
+                done
+                sed -i -e "s/${ipMappingPlaceholder[i]}/${ipMapping}/g" ${stgFile}
+	        else
+                sed -i -e "s/${ipMappingPlaceholder[i]}//g" ${stgFile}
             fi
         done
         logInfoMsg "Applied network config to ${stgFile}"

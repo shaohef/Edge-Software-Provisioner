@@ -22,7 +22,7 @@ RUN apk update && apk add --no-cache \
 WORKDIR /build
 RUN mkdir /out
 
-RUN curl -s http://dl-cdn.alpinelinux.org/alpine/${ALPINELINUX_RELEASE}/main/x86_64/ | grep -Eo linux-vanilla-\[0-9\]\[\-\_\.0-9a-zA-Z\]+.apk | head -n1 > /tmp/KERNEL_FILE
+RUN curl -s http://dl-cdn.alpinelinux.org/alpine/${ALPINELINUX_RELEASE}/main/x86_64/ | grep -Eo linux-lts-\[0-9\]\[\-\_\.0-9a-zA-Z\]+.apk | head -n1 > /tmp/KERNEL_FILE
 
 RUN KERNEL_FILE=$(cat /tmp/KERNEL_FILE) && wget http://dl-cdn.alpinelinux.org/alpine/${ALPINELINUX_RELEASE}/main/x86_64/${KERNEL_FILE}
 
