@@ -34,7 +34,20 @@ RUN ar x linux-image-unsigned-${UBUNTU_RELEASE}_${KERNEL_VERSION}.deb && \
     ar x linux-modules-${UBUNTU_RELEASE}_${KERNEL_VERSION}.deb && \
     tar -xf data.tar.xz && \
     ar x linux-modules-extra-${UBUNTU_RELEASE}_${KERNEL_VERSION}.deb && \
-    tar -xf data.tar.xz ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/net/ethernet/ ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/net/phy/ ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/net/wireless/ && \
+    tar -xf data.tar.xz \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/net/ethernet/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/gpu/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/video/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/net/phy/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/net/wireless/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/misc/mei/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/mmc/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/media/mmc/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/scsi/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/ata/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/block/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/usb/ \
+        ./lib/modules/${UBUNTU_RELEASE}/kernel/drivers/virtio/ && \
     for d in lib/modules/*; do depmod -b . $(basename $d); done && \
     cp boot/vmlinuz* /out/kernel && \
     cp boot/config* /out/kernel_config && \
