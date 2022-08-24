@@ -10,6 +10,7 @@ pipeline {
                 // like ./ci-build.sh or something similar
                 sh '''
                 docker build ${DOCKER_BUILD_ARGS} -t edgebuilder-aws-cli dockerfiles/aws-cli
+                docker build ${DOCKER_BUILD_ARGS} -t edgebuilder-wget dockerfiles/wget
                 docker build ${DOCKER_BUILD_ARGS} -t edgebuilder-git dockerfiles/git
                 docker build ${DOCKER_BUILD_ARGS} -t edgebuilder-dnsmasq dockerfiles/dnsmasq
                 docker build ${DOCKER_BUILD_ARGS} -t edgebuilder-squid dockerfiles/squid
@@ -45,6 +46,7 @@ pipeline {
                         script {
                             def _files = [
                                 'edgebuilder-aws-cli': 'dockerfiles/aws-cli/Dockerfile',
+                                'edgebuilder-wget': 'dockerfiles/wget/Dockerfile',
                                 'edgebuilder-git': 'dockerfiles/git/Dockerfile',
                                 'edgebuilder-dnsmasq': 'dockerfiles/dnsmasq/Dockerfile',
                                 'edgebuilder-squid': 'dockerfiles/squid/Dockerfile',
