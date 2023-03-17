@@ -116,6 +116,7 @@ done
 
 source "scripts/fileutils.sh"
 source "scripts/bulkfileutils.sh"
+source "scripts/dynamicprofile.sh"
 
 printMsg "\n----------------------------------"
 printMsg " ${T_BOLD}${C_BLUE}Welcome to the host build script${T_RESET}"
@@ -357,7 +358,7 @@ if [[ "${BUILD_IMAGES}" == "true" ]]; then
         logMsg "(3/11) SKIPPING: Building builder-dnsmasq"
     else
         run "(3/11) Building builder-dnsmasq (~10 min)" \
-            "docker build --rm ${DOCKER_BUILD_ARGS} -t builder-dnsmasq dockerfiles/dnsmasq" \
+            "docker build --rm ${DOCKER_BUILD_ARGS} --build-arg host_ip='$(getIp)' -t builder-dnsmasq dockerfiles/dnsmasq" \
             ${LOG_FILE}
     fi
 

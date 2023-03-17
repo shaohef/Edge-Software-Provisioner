@@ -9,6 +9,8 @@ RUN echo "x86" > /etc/apk/arch && apk --no-cache add syslinux
 
 FROM alpine:3.12 as iPXEcompile
 
+ARG host_ip=""
+
 RUN apk --no-cache add \
     git \
     bash \
@@ -56,7 +58,8 @@ RUN make -C /build/src/ bin/ipxe.lkrn EMBED=chain.ipxe -j8 && \
     make -C /build/src/ clean
 
 # The following is too anticipate DHCP delays in the network
-RUN echo -e '#!ipxe\n\ndhcp\nchain ${filename}' > /build/src/chain.ipxe
+# RUN echo -e '#!ipxe\n\ndhcp\nchain ${filename}' > /build/src/chain.ipxe
+RUN echo -e "#!ipxe\n\ndhcp\nchain http://${host_ip}/menu.ipxe" > /build/src/chain.ipxe
 
 # Compile the files in "bin/"
 ARG IPXE_BIN="bin/ipxe.dsk bin/ipxe.lkrn bin/ipxe.iso bin/ipxe.usb bin/ipxe.pxe bin/undionly.kpxe bin/rtl8139.rom bin/8086100e.mrom bin/80861209.rom bin/10500940.rom bin/10ec8139.rom bin/1af41000.rom bin/8086100f.mrom bin/808610d3.mrom bin/10222000.rom bin/15ad07b0.rom bin/3c509.rom bin/intel.rom bin/intel.mrom"
