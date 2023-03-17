@@ -87,7 +87,7 @@ The following is required:
 
 The Edge Software Provisioner (ESP) must be in an isolated network and there must only be one ESP in the network.  ESP will detect if there is an existing DHCP or DNS and will configure itself accordingly.  It will also detect if the host has a static or dynamic IP IPv4 address.  If the host is a dynamic IP address and if the IP address changes you must run `./build.sh -S -P && ./run.sh --restart` to update ESP configuration with the new IP address.
 
-WARNING: DO NOT RUN ESP ON YOUR CORPORATE NETWORK. *It must be on an isoloated network.*
+WARNING: DO NOT RUN ESP ON YOUR CORPORATE NETWORK. *It must be on an isolated network.*
 
 NOTE: If using Ubuntu, do not use Snapd Docker, install Docker using aptitude.  Dnsmasq must not been running on the system from some other service.  Please confirm with `ps -auxww | grep dnsmasq`.
 
