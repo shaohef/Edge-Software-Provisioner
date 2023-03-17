@@ -57,6 +57,15 @@ wait_for_conf() {
 		sleep 5; 
 	done
 	cp /etc/squid/template/squid.conf /etc/squid/squid.conf
+
+	if [ ! -z "${HTTPS_PROXY+x}" ]; then
+		PROXY_DOMAIN=$(echo "${HTTPS_PROXY}"| cut -d'/' -f3 | cut -d':' -f1)
+		PROXY_PORT=$(echo "${HTTPS_PROXY}"| cut -d'/' -f3 | cut -d':' -f2)
+		echo "cache_peer ${PROXY_DOMAIN} parent ${PROXY_PORT} 0 no-query no-digest" >> /etc/squid/squid.conf
+		echo "never_direct allow all" >> /etc/squid/squid.conf
+	else
+		echo "always_direct allow all" >> /etc/squid/squid.conf
+	fi
 }
 
 run() {
